@@ -497,10 +497,9 @@ def run():
     send_webhook_alert(startup_embed, "🔌 **MuhRO MVP Tracker Started**")
 
     if DISCORD_BOT_TOKEN:
-        try:
-            bot_client.run(DISCORD_BOT_TOKEN, log_handler=None)
-        except Exception:
-            log.exception("Discord bot stopped unexpectedly.")
+        # Let fatal client errors propagate to the combined launcher so the
+        # process can exit unhealthy and the hosting platform can restart it.
+        bot_client.run(DISCORD_BOT_TOKEN, log_handler=None)
     else:
         log.warning("DISCORD_BOT_TOKEN is missing; interactive Discord bot will not start.")
         while True:
