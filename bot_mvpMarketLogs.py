@@ -4,8 +4,8 @@ import time
 import requests
 
 # ---------------- CONFIGURATION ----------------
-DISCORD_WEBHOOK_1 = os.getenv("DISCORD_WEBHOOK_1", "").strip()
-DISCORD_WEBHOOK_2 = os.getenv("DISCORD_WEBHOOK_2", "").strip()
+DISCORD_WEBHOOK_MARKET_1 = os.getenv("DISCORD_WEBHOOK_MARKET_1", "").strip()
+DISCORD_WEBHOOK_MARKET_2 = os.getenv("DISCORD_WEBHOOK_MARKET_2", "").strip()
 
 # MuhRO MarketDB Endpoints
 ACTIVE_VENDING_API = "https://flux.muhro.eu/?module=marketdb&action=api&name=v_vending"
