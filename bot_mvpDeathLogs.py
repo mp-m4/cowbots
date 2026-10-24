@@ -21,8 +21,8 @@ MVP_LOG_URL = os.getenv(
     "MVP_LOG_URL",
     "https://flux.muhro.eu/?module=ranking&action=mvp",
 )
-DISCORD_WEBHOOK_1 = os.getenv("DISCORD_WEBHOOK_1", "").strip()
-DISCORD_WEBHOOK_2 = os.getenv("DISCORD_WEBHOOK_2", "").strip()
+DISCORD_WEBHOOK_DEATH_LOGS_1 = os.getenv("DISCORD_WEBHOOK_DEATH_LOGS_1", "").strip()
+DISCORD_WEBHOOK_DEATH_LOGS_2 = os.getenv("DISCORD_WEBHOOK_DEATH_LOGS_2", "").strip()
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
 
 STATE_FILE = os.getenv("STATE_FILE", "muhro_state.json")
