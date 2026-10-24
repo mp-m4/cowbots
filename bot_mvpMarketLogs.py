@@ -1,16 +1,22 @@
+import logging
+import os
 import time
 import requests
 
 # ---------------- CONFIGURATION ----------------
-DISCORD_WEBHOOK_1 = "https://discord.com/api/webhooks/1550072537877184583/LLpc9TsH7Dc4JUGSrA4l2wmXOA6UNWH3pC4vG6RBWlbw4uZSfVfY3FRsInjEM2cv1WmA"
-DISCORD_WEBHOOK_2 = "https://discord.com/api/webhooks/1560251771195105401/Sc8-5GrTpvEhkREtKntFXXfiP4M2IVCIxfHwtj0_fUvhaMghL_B3mqIwdxPxddvACpqg"
+DISCORD_WEBHOOK_1 = os.getenv("DISCORD_WEBHOOK_1", "").strip()
+DISCORD_WEBHOOK_2 = os.getenv("DISCORD_WEBHOOK_2", "").strip()
 
 # MuhRO MarketDB Endpoints
 ACTIVE_VENDING_API = "https://flux.muhro.eu/?module=marketdb&action=api&name=v_vending"
 LAST_SALES_API = "https://flux.muhro.eu/?module=marketdb&action=api&name=vending_last_sales_latest"
 
-CHECK_INTERVAL_SECONDS = 300  # 5 minutes check loop
-PING_DELAY_SECONDS = 2  # Pause in seconds between sending alerts
+CHECK_INTERVAL_SECONDS = max(15, int(os.getenv("MARKET_CHECK_INTERVAL_SECONDS", "300")))
+PING_DELAY_SECONDS = max(0, float(os.getenv("PING_DELAY_SECONDS", "2")))
+REQUEST_TIMEOUT_SECONDS = max(3, int(os.getenv("MARKET_REQUEST_TIMEOUT_SECONDS", "10")))
+
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(), format="%(asctime)s [%(levelname)s] %(message)s")
+log = logging.getLogger("muhro-market")
 # -----------------------------------------------
 
 # Memory tracking to avoid duplicate pings
@@ -40,25 +46,29 @@ def send_discord_alert(content_text, title, color, price, amount, datetime_str):
         ]
     }
     
-    webhooks = [url for url in [DISCORD_WEBHOOK_1, DISCORD_WEBHOOK_2] if url.strip()]
+    webhooks = [url for url in (DISCORD_WEBHOOK_1, DISCORD_WEBHOOK_2) if url]
 
     for webhook_url in webhooks:
-        while True:
+        retries = 0
+        while retries < 5:
             try:
-                response = requests.post(webhook_url, json=payload, timeout=10)
+                response = requests.post(webhook_url, json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
                 if response.status_code in (200, 204):
-                    print(f"[{time.strftime('%H:%M:%S')}] Discord alert sent successfully.")
+                    log.info("Discord alert sent successfully")
                     break
                 elif response.status_code == 429:
                     retry_after = response.json().get("retry_after", 2)
-                    print(f"[{time.strftime('%H:%M:%S')}] Rate limited by Discord. Retrying in {retry_after}s...")
-                    time.sleep(retry_after)
+                    retries += 1
+                    log.warning("Discord rate limit; retry %s/5 in %ss", retries, retry_after)
+                    time.sleep(min(float(retry_after), 60))
                 else:
-                    print(f"[{time.strftime('%H:%M:%S')}] Discord HTTP Error: {response.status_code}")
+                    log.error("Discord webhook returned HTTP %s", response.status_code)
                     break
-            except Exception as e:
-                print(f"[{time.strftime('%H:%M:%S')}] Failed to post to Discord: {e}")
-                break
+            except requests.RequestException:
+                retries += 1
+                log.exception("Failed to post to Discord webhook (attempt %s/5)", retries)
+                if retries < 5:
+                    time.sleep(min(2 ** retries, 30))
 
 
 def parse_zeny(raw_price, currency="zeny"):
@@ -115,11 +125,11 @@ def process_active_listings():
     headers = {'User-Agent': 'Mozilla/5.0'}
     
     try:
-        res = requests.get(ACTIVE_VENDING_API, headers=headers, timeout=10)
-        if res.status_code != 200:
-            return
+        res = requests.get(ACTIVE_VENDING_API, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        res.raise_for_status()
         data = res.json()
-    except Exception:
+    except (requests.RequestException, ValueError):
+        log.exception("Could not fetch or parse active market listings")
         return
 
     items = data if isinstance(data, list) else data.get("items", [])
@@ -146,7 +156,7 @@ def process_active_listings():
             current_scan_ids.add(listing_id)
             if listing_id not in alerted_listings:
                 if not is_initial_listings_warmup:
-                    print(f"[{timestamp}] 🚨 NEW LISTING: {name} (x{amount}) for {total_zeny:,} Zeny")
+                    log.info("NEW LISTING: %s (x%s) for %s Zeny", name, amount, f"{total_zeny:,}")
                     send_discord_alert(
                         content_text="🚨 **NEW MATCHED ITEM LISTED ON MARKET!**",
                         title=f"👑 {name}", color=15158332, price=total_zeny, amount=amount, datetime_str=listing_time
@@ -156,7 +166,7 @@ def process_active_listings():
 
     alerted_listings.intersection_update(current_scan_ids)
     if is_initial_listings_warmup:
-        print(f"[{timestamp}] ✅ Active listings warm-up complete. Cached {len(alerted_listings)} existing listings silently.")
+        log.info("Active listings warm-up complete; cached %s existing listings silently", len(alerted_listings))
         is_initial_listings_warmup = False
 
 
@@ -167,11 +177,11 @@ def process_recent_sales():
     headers = {'User-Agent': 'Mozilla/5.0'}
     
     try:
-        res = requests.get(LAST_SALES_API, headers=headers, timeout=10)
-        if res.status_code != 200:
-            return
+        res = requests.get(LAST_SALES_API, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        res.raise_for_status()
         data = res.json()
-    except Exception:
+    except (requests.RequestException, ValueError):
+        log.exception("Could not fetch or parse recent market sales")
         return
 
     sales = data if isinstance(data, list) else data.get("items", [])
@@ -185,7 +195,7 @@ def process_recent_sales():
         if is_watched_item(name):
             if sale_id not in alerted_sales:
                 if not is_initial_sales_warmup:
-                    print(f"[{timestamp}] 💰 ITEM SOLD: {name} (x{amount}) for {total_zeny:,} Zeny at {sold_time}")
+                    log.info("ITEM SOLD: %s (x%s) for %s Zeny at %s", name, amount, f"{total_zeny:,}", sold_time)
                     send_discord_alert(
                         content_text="💰 **MATCHED ITEM HAS BEEN SOLD!**",
                         title=f"💸 SOLD: {name}", color=3066993, price=total_zeny, amount=amount, datetime_str=sold_time
@@ -194,11 +204,13 @@ def process_recent_sales():
                 alerted_sales.add(sale_id)
 
     if is_initial_sales_warmup:
-        print(f"[{timestamp}] ✅ Sales history warm-up complete. Cached {len(alerted_sales)} historical sales silently.")
+        log.info("Sales history warm-up complete; cached %s historical sales silently", len(alerted_sales))
         is_initial_sales_warmup = False
 
     if len(alerted_sales) > 500:
-        alerted_sales.clear()
+        # Trim only a portion; clearing the whole set can re-alert recent sales.
+        while len(alerted_sales) > 400:
+            alerted_sales.pop()
 
 
 def run():
