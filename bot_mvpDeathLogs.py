@@ -258,7 +258,7 @@ def make_embed(title, color, fields):
 
 
 def send_webhook_alert(embed_dict, content="🏆 **MuhRO MVP Tracker**"):
-    urls = [url for url in (DISCORD_WEBHOOK_1, DISCORD_WEBHOOK_2) if url]
+    urls = [url for url in (DISCORD_WEBHOOK_DEATH_LOGS_1, DISCORD_WEBHOOK_DEATH_LOGS_2) if url]
     if not urls:
         return
 
